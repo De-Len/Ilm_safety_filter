@@ -3,7 +3,7 @@ config = {
     "use_classifier": True,
     "use_llm": True,
     "thresholds": {
-        "block": 0.8,
-        "review": 0.5
+        "block": 0.5,
+        "review": 0.3
     }
 }

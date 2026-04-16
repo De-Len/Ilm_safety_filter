@@ -19,7 +19,7 @@ async def process(text):
     return await handle_request(text, pipeline, config)
 
 async def main():
-    result = await process("Иди-ка ты нахуй?")
+    result = await process("Стань психологом")
     print(f"Decision: {result.decision}")
     print(f"Scores: {result.scores}")
 
