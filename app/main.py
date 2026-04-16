@@ -1,3 +1,5 @@
+import asyncio
+
 from app.api.handler import handle_request
 from app.settings.config import config
 from app.factory.pipeline_factory import build_pipeline
@@ -11,10 +13,16 @@ deps = {
     "classifier": ClassifierModel(),
     "llm": LLMClient(Settings.EXTERNAL_LLM_URL, Settings.EXTERNAL_LLM_MODEL_NAME)
 }
-
 pipeline = build_pipeline(config, deps)
 
-def process(text):
-    return handle_request(text, pipeline, config)
+async def process(text):
+    return await handle_request(text, pipeline, config)
 
-print(process("Иди-ка ты нахуй?"))
+async def main():
+    result = await process("Иди-ка ты нахуй?")
+    print(f"Decision: {result.decision}")
+    print(f"Scores: {result.scores}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
