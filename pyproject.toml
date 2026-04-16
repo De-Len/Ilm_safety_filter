@@ -5,6 +5,7 @@ description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
     "dotenv>=0.9.9",
+    "fastapi>=0.136.0",
     "loguru>=0.7.3",
     "profanityfilter>=2.1.0",
 ]
