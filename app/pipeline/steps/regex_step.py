@@ -1,5 +1,5 @@
 def regex_step(matcher):
-    def step(ctx):
+    async def step(ctx):
         matches = matcher.is_toxic(ctx.text)
         if matches:
             ctx.scores["regex"] = 0.6

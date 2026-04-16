@@ -1,3 +1,5 @@
+import json
+
 import httpx
 from app.logs import logger
 
@@ -33,6 +35,7 @@ class LLMClient:
         try:
             request_body = {
                 "model": self.model,
+                "stream": False,
                 "messages": [
                     {
                         "role": "system",
