@@ -1,6 +1,6 @@
 config = {
     "use_regex": True,
-    "use_classifier": False,
+    "use_classifier": True,
     "use_llm": True,
     "thresholds": {
         "block": 0.8,
