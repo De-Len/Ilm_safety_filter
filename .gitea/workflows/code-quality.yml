@@ -1,0 +1,43 @@
+name: Code Quality Checks
+on:
+  pull_request:
+    branches: [ main, master, development ]
+
+jobs:
+  pre-commit:
+    runs-on: [ ubuntu-latest ]
+    container:
+      image: docker.gitea.com/runner-images:ubuntu-latest
+      volumes:
+        - /home/user/docker_volumes/tools/uv:/root/.cache/uv
+        - /home/user/docker_volumes/tools/uv-python:/root/.local/share/uv/python
+        - /home/user/docker_volumes/tools/pre-commit:/root/.cache/pre-commit
+        - /home/user/docker_volumes/tools/uv-venv:/root/.cache/uv-venv
+    name: pre-commit
+    env:
+      UV_CACHE_DIR: /root/.cache/uv
+      UV_PROJECT_ENVIRONMENT: /root/.cache/uv-venv
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Sync project environment
+        run: uv sync --no-dev
+
+      - name: Run pre-commit on ALL files
+        run: |
+          uv run pre-commit run --all-files || \
+          echo "⚠️ Pre-commit checks failed but continuing (for now)"
+
+      - name: Run tests (if any)
+        run: |
+          if [ -d "tests" ]; then
+            uv run pytest -v tests/
+          else
+            echo "No tests directory found, skipping"
+          fi

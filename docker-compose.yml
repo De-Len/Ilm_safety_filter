@@ -1,0 +1,17 @@
+services:
+  llm-safety-filter:
+    image: llm-safety-filter:${BACKEND_TAG:-latest}
+    container_name: llm-safety-filter
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8082:8082"  # FastAPI порт по умолчанию
+    networks:
+      - safety-net
+
+networks:
+  safety-net:
+    name: safety-net
+    external: true
+    driver: bridge

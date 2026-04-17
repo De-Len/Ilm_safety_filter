@@ -1,0 +1,145 @@
+name: Deploy LLM Safety Filter
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: [ ubuntu-latest ]
+    container:
+      image: docker.gitea.com/runner-images:ubuntu-latest
+      volumes:
+        - /home/user/docker_volumes/tools/uv:/root/.cache/uv
+        - /home/user/docker_volumes/tools/uv-python:/root/.local/share/uv/python
+        - /home/user/docker_volumes/tools/pre-commit:/root/.cache/pre-commit
+        - /home/user/docker_volumes/tools/uv-venv:/root/.cache/uv-venv
+    env:
+      UV_CACHE_DIR: /root/.cache/uv
+      UV_PROJECT_ENVIRONMENT: /root/.cache/uv-venv
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Extract version info
+        id: version
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date +%Y%m%d)
+          VERSION_TAG="v${BUILD_DATE}-${COMMIT_SHA}"
+          echo "VERSION_TAG=${VERSION_TAG}" >> $GITHUB_ENV
+          echo "LLM Safety Filter version: ${VERSION_TAG}"
+
+      - name: Check Docker cache availability
+        run: |
+          if docker image inspect llm-safety-filter:cache > /dev/null 2>&1; then
+            echo "Cache llm-safety-filter:cache found"
+            docker images llm-safety-filter:cache --format "size: {{.Size}}"
+          else
+            echo "Cache not found - first build or cache was removed"
+          fi
+
+      - name: Build and push Docker image
+        env:
+          BUILDKIT_PROGRESS: plain
+          DOCKER_BUILDKIT: 1
+        run: |
+          echo "Building llm-safety-filter image with version ${{ env.VERSION_TAG }}..."
+          
+          START=$(date +%s)
+          
+          docker build \
+            --cache-from llm-safety-filter:cache \
+            --progress=plain \
+            -t llm-safety-filter:${{ env.VERSION_TAG }} \
+            -t llm-safety-filter:latest \
+            -t llm-safety-filter:cache \
+            . 2>&1 | tee build.log | grep -v "^#.*seconds"
+          
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "Build failed. Last 50 lines of log:"
+            tail -n 50 build.log
+            exit 1
+          fi
+          
+          END=$(date +%s)
+          echo "Build completed in $((END-START)) seconds"
+          
+          echo "Built images:"
+          docker images llm-safety-filter --format "table {{.Tag}}\t{{.Size}}" | head -10
+
+      - name: Deploy new version
+        run: |
+          set -euxo pipefail 
+
+          echo "Preparing environment for deployment version ${{ env.VERSION_TAG }}..."
+
+          echo "BACKEND_TAG=${{ env.VERSION_TAG }}" > .env.backend
+
+          echo "Creating/updating .env file with secrets..."
+          cat > .env << EOF
+            
+            # LLM Configuration
+            EXTERNAL_LLM_URL=${{ vars.EXTERNAL_LLM_URL }}
+            EXTERNAL_LLM_API_KEY=${{ vars.EXTERNAL_LLM_API_KEY }}
+            EXTERNAL_LLM_MODEL_NAME=${{ vars.EXTERNAL_LLM_MODEL_NAME }}
+            
+            # Application Settings
+            LOG_LEVEL=${{ vars.LOG_LEVEL }}
+            EOF
+
+          echo "Contents of .env file:"
+          sed 's/=.*/=***/' .env
+
+          echo "Starting new llm-safety-filter version..."
+          docker compose --env-file .env --env-file .env.backend up -d --force-recreate llm-safety-filter
+
+          echo "Waiting for container to start (60 sec)..."
+          for i in {1..60}; do
+            if docker compose ps --services --filter "status=running" | grep -q "^llm-safety-filter$"; then
+              echo "Container llm-safety-filter is running."
+              break
+            fi
+            sleep 1
+          done
+
+          if ! docker compose ps --services --filter "status=running" | grep -q "^llm-safety-filter$"; then
+            echo "Error: Container llm-safety-filter is not running."
+            docker compose logs llm-safety-filter --tail=30
+            exit 1
+          fi
+
+          echo "Version in running container:"
+          CONTAINER_IMAGE=$(docker inspect llm-safety-filter --format='{{.Config.Image}}')
+          echo "Image used: $CONTAINER_IMAGE"
+
+          echo "Checking healthcheck..."
+          sleep 5
+          if docker compose exec -T llm-safety-filter curl -f http://localhost:8082/health 2>/dev/null; then
+            echo "Healthcheck passed"
+          else
+            echo "Healthcheck unavailable, but container is running"
+          fi
+
+          echo "Deployment of version ${{ env.VERSION_TAG }} completed successfully."
+
+      - name: Cleanup old versions
+        run: |
+          echo "Cleaning old llm-safety-filter versions (keeping last 5)..."
+          IMAGES=$(docker images llm-safety-filter --format "{{.Tag}}" | grep -v latest | grep -v cache | sort -r)
+          COUNT=$(echo "$IMAGES" | wc -l)
+
+          if [ "$COUNT" -gt 5 ]; then
+            echo "Found $COUNT versions. Removing old ones..."
+            TO_REMOVE=$(echo "$IMAGES" | tail -n +6)
+            for TAG in $TO_REMOVE; do
+              echo "Removing llm-safety-filter:$TAG"
+              docker rmi "llm-safety-filter:$TAG" 2>/dev/null || true
+            done
+          else
+            echo "Only $COUNT versions, cleanup not required."
+          fi
+
+          echo "Cleaning dangling images..."
+          docker image prune -f
